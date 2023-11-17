@@ -1,0 +1,603 @@
+---
+title: "Assignment2_BTC1877H"
+author: "Leen Madani"
+date: "2023-11-02"
+output: pdf_document
+---
+
+# Assignment Objective:
+
+The objective of this assignment is to train and use a number of models for both regression and classification, as well as to perform survival analysis. You will use a data set from the University of Wisconsin where each record represents follow-up data for one breast cancer case after surgery.  The data set contains features computed from a digitized image of a fine needle aspirate (FNA) of a breast mass.  They describe characteristics of the cell nuclei present in the image. Information about the outcome of the patient is also included, such as time to recurrence or time to last seen, for those who have not experienced recurrence yet.
+
+
+
+# Q1 Regression (7 points)
+
+```{r task1.1, include = FALSE, message=FALSE}
+setwd("C:/Users/Leen/Desktop/Mbiotech Fall 2023/BTC1877")
+
+# Read dataset into a dataframe using read.csv function and save the dataset as study
+# na values are portrayed as  ? so indicate this
+# there is no header present so set header to false to avoid having read.csv use first row as header automatically
+data <- read.csv('bc_data.csv', header = FALSE, na.strings = "?")
+
+# let me rename the column names to make it easier for me to understand what im looking at moved forward
+colnames(data) <- c("ID", "Outcome", "Time",
+                    "Mean_Radius", "Mean_Texture", "Mean_Perimeter", "Mean_Area", "Mean_Smoothness", "Mean_Compactness", "Mean_Concavity", "Mean_Concave_Points", "Mean_Symmetry", "Mean_Fractal_Dimension",
+                    "SE_Radius", "SE_Texture", "SE_Perimeter", "SE_Area", "SE_Smoothness", "SE_Compactness", "SE_Concavity", "SE_Concave_Points", "SE_Symmetry", "SE_Fractal_Dimension",
+                    "Worst_Radius", "Worst_Texture", "Worst_Perimeter", "Worst_Area", "Worst_Smoothness", "Worst_Compactness", "Worst_Concavity", "Worst_Concave_Points", "Worst_Symmetry", "Worst_Fractal_Dimension",
+                    "Tumor_Size", "Lymph_Node_Status")
+
+
+# Take a deeper look at the dataset's structure to understand its components using glimpse()
+library(dplyr)
+glimpse(data)
+
+# we have 197 obs and 35 variables
+
+# Dealing with missing values which are portrayed as ? as per instructions given
+
+any(is.na(data)) # double check if there is  any missing values portrayed as NA? 
+
+# Now let's see how many NAs in our dataset
+sum(is.na(data)) # only 4 NAs
+
+# Let's count the missing observations for each variable 
+colSums(is.na(data)) # all of them are found in the last column, which is lymph node status.we will use this variable in our analysis, so i have to deal with it. 
+
+# We can visualize our missing data using nania package
+#install.packages("naniar")
+library(naniar)
+missing_data <- vis_miss(data) 
+
+# Since there's only 4, i will either go with complese case or mean/median imputation. If there's significant outlier, then median imputaiton might be better because median is not affected by the outliers.
+
+# boxplot will help me visualize any outliers and it appears theres many outliers in the higher number range(skewed to the right). Therefore, i will use median imputation
+
+library(ggplot2)
+# Generate and display a boxplot
+boxplot <- ggplot(data, aes(y = Lymph_Node_Status)) + geom_boxplot()
+
+summary(data$Lymph_Node_Status) # median is 1
+
+# I can impute missing values with median but questoin 3 says to use complete case method.  
+
+# Remove rows with any missing values
+data_clean <- data %>%
+  na.omit()
+
+```
+
+```{r missing_data1.1, echo = FALSE, warning = FALSE,  fig.cap = "Visualization of the Amount of Missing Data.", message=FALSE, fig.width= 8, fig.height=4}
+
+missing_data
+
+```
+
+
+
+
+```{r boxplot1.1, fig.cap = "Boxplot to check for outliers in Lymph Node Status variable before data cleaning or encoding into categorical variable.", echo = FALSE, warning = FALSE}
+
+boxplot
+
+# WARNING appears because we have 4 NAs so it removes them autoamtically. suppressed the warning message
+
+```
+
+
+```{r task1.2, include = FALSE, warning = FALSE}
+
+# Load the dplyr package
+library(dplyr)
+
+# Convert the number of axillary nodes into a categorical variable
+data_categ <- data_clean %>%
+  mutate(Lymph_Node_Status = factor(case_when(
+    Lymph_Node_Status == 0 ~ "0",
+    Lymph_Node_Status >= 1 & Lymph_Node_Status <= 3 ~ "1-3",
+    Lymph_Node_Status >= 4 ~ "4 or more"),levels = c("0", "1-3", "4 or more"))) 
+
+# Subset the data for patients with recurrence and select columns asked in the questoin
+recurrence_data <- data_categ %>%
+  filter(Outcome == "R") %>%
+  select(1:13, 34, 35)  # Select columns by their indices
+
+# Dataset for both outcomes and the 15 columns (12 features)
+data_both <- data_categ %>%
+   select(1:13, 34, 35)
+
+# Now lets do some EDA and descriptive stats
+# install.packages("funModeling") does not work because it is no longer found in R. Therefore, download it remotely from github itself using this code below:
+#install.packages("devtools")
+#devtools::install_github("pablo14/funModeling")
+
+# Load necessary packages for descriptive stats and EDA on recurrence_data
+library(funModeling)
+library(tidyverse)
+library(Hmisc)
+
+# The following basic_eda function is adapted from datascienceheroes.com
+basic_eda <- function(data)
+{
+ # Remove 'ID' column
+  data <- data[, colnames(data) != "ID"]
+  
+  glimpse(data)
+  print(status(data))
+  describe(data)
+}
+
+# glimpse() function shows the no. of rows & columns, each column with it values, and the data type.
+# status() function returns a table with overall metrics about data types, zeros, infinite no., and NAs..
+
+basic_eda(recurrence_data)
+
+# visualize the cateogircal variable as it can't be visualized using profile_num()
+freq_plot <- freq(recurrence_data$Lymph_Node_Status) 
+
+```
+```{r eda_cont1.2, echo= FALSE, fig.cap= "Visualization of the Continuous Variables using Histograms." }
+
+# the plot_num() function creates a plot showing the distribution of each variable; the default value of the bins is set to 10.
+#remove the first column which is ID
+
+plot_num(recurrence_data[,-1])
+
+```
+
+```{r eda_catog1.2, echo = FALSE, fig.cap= "Visualization of the categorical variable 'Lymph Node Status' as frequency distribution bar plot. '0' indicates no positive axillary lymph nodes observed, '1-3' indicates 1 to 3 positive axillary lymph nodes observed, and '4 or more' indicates 4 or more positive axillary lymph nodes observed.", warning = FALSE}
+
+# lets adjust the x and y labels of the frequency distribution bar plot for lymph node 
+
+# Create the bar plot
+ggplot(freq_plot, aes(x = var, y = frequency, fill = var)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(percentage, "%")), vjust = -0.5) +
+  labs(x = "Lymph Node Status", y = "Frequency") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() + 
+  theme(legend.position = "none")  # Remove the legend on the right
+
+```
+
+
+```{r table1.2, echo=FALSE, message= FALSE}
+
+library(knitr)
+library(dplyr)
+
+
+# Calculate descriptive statistics
+# profiling_num() runs for all numerical/integer variables. Shows all the descriptive statistics(i.e.mean, std dev, variance, percentiles, skewness of the distribution, kurotsis, IQR, range_98, and range_80 (range_98 is the range where 98% of the values are, range_80 is range where 80% of values are.
+# let's ensure the id, outcome, and lymph node status columns are not included. 
+table1 <- profiling_num(recurrence_data[, c(3:14)])
+
+# Select only the statistics you care about 
+table1_clean <- table1 %>%
+  select(
+    Variable = variable,
+    Mean = mean,
+    `Standard Deviation` = std_dev,
+    `Variation Coef.` = variation_coef,
+    `1st Quartile` = p_25,
+    Median = p_50,
+    `3rd Quartile` = p_75,
+    Skewness = skewness
+  ) %>%
+  mutate(
+    Mean = round(Mean, 2),
+    `Standard Deviation` = round(`Standard Deviation`, 2),
+    `Variation Coef.` = round(`Variation Coef.`, 2),
+    `1st Quartile` = round(`1st Quartile`, 2),
+    Median = round(Median, 2),
+    `3rd Quartile` = round(`3rd Quartile`, 2),
+    Skewness = round(Skewness, 2)
+  )
+
+# Remove row numbering
+rownames(table1_clean) <- NULL
+
+# Use kable from knitr package to create a clean table from our dataframe table_clean
+kable(table1_clean, caption = "Descriptive Statistics for Continuous Predictors")
+
+
+
+```
+
+
+
+
+```{r task1.3, include=FALSE}
+# Loading necessary libraries
+library(glmnet)
+# Extract predictors and response variable
+predictor_columns <- c("Mean_Radius", "Mean_Texture", "Mean_Perimeter", "Mean_Area","Mean_Smoothness", "Mean_Compactness", "Mean_Concavity", "Mean_Concave_Points", "Mean_Symmetry", "Mean_Fractal_Dimension", "Tumor_Size", "Lymph_Node_Status")
+
+x <- model.matrix(~ ., data = recurrence_data[predictor_columns])
+y <- recurrence_data$Time
+
+glimpse(recurrence_data)
+str(recurrence_data$Time)
+
+dim(x)  # Number of rows should match the length of y
+length(y)  # Should match the number of rows of x
+
+# Note: We do not need to exclude the first column after the model.matrix call because we did not include an intercept in the formula (there's no '1' or intercept term specified) and we're only using the predictor columns we're interested in.
+
+# Train lasso model
+lasso.mod <- glmnet(x, y, family="gaussian")
+
+# Plot the results against different values of log(lambda)
+lasso_plot <- plot(lasso.mod, xvar = "lambda")
+
+
+```
+
+
+```{r 1.3plot, fig.width=10, fig.height=6, echo=FALSE, fig.cap= "LASSO Coefficient Paths for Predicting Time to Recurrence.This figure illustrates the paths of the coefficients for 12 predictors as the regularization parameter lambda increases in a LASSO model. Predictors include various tumor characteristics such as radius, texture, and size, as well as lymph node status. Each line represents a predictor, with the value of the coefficient shrinking towards zero as the penalty for model complexity increases. The plot aids in identifying which predictors have the most significant impact on the time to recurrence as the model becomes more parsimonious.", warnings = FALSE, message=FALSE}
+
+# Plot the LASSO path without automatic labels
+lasso_plot <- plot(lasso.mod, xvar = "lambda")
+
+
+# I WANT TO TRY TO ADD LABELS FOR THE PREDICTORS 
+# Define colors for each predictor
+colors <- rainbow(nrow(coef(lasso.mod)) - 1)  # one color for each predictor
+
+# Enhance the display
+legend("topright", legend = rownames(coef(lasso.mod))[-1], col = colors, lty = 1, cex = 0.65)
+```
+
+```{r task1.4, include=FALSE,  warning=FALSE}
+
+# Perform cross-validation
+set.seed(123)
+cv.lasso <- cv.glmnet(x, y, nfolds = 5)
+cv.lasso
+cv_plot <- plot(cv.lasso)
+
+# Extract the value that gives the lowest Cross-validated Mean Squared Error
+optimal_lambda <- cv.lasso$lambda.min
+print(optimal_lambda)
+
+# Extract the coefficients for the optimal lambda value
+coef.min <- coef(cv.lasso, s = "lambda.min")
+coef.min
+# List of selected predictors
+selected_predictors <- rownames(coef.min)[coef.min[, 1] != 0][-1]
+print(selected_predictors)
+```
+
+```{r 1.4plot, echo=FALSE, fig.cap= "Cross-validation to Determine Optimal Regularization Parameter in LASSO Model. This figure represents the cross-validation process used to identify the optimal value of lambda that minimizes the mean squared error in a LASSO regression model. The plot illustrates the variation of the mean squared error as the regularization parameter lambda changes."}
+
+cv_plot <- plot(cv.lasso)
+```
+
+### Interpret 1.3 and 1.4 Results: Lasso regression model & cross-validation to predict the time to recurrence
+
+The optimal value of lambda \(\lambda\), which in this model is `r optimal_lambda`, was found through the five-fold cross-validation and is the amount of penalty applied during the Lasso process. The penalty's purpose is to prevent overfitting by discouraging overly complex models. A lambda value of `r optimal_lambda` suggests that the model requires a moderate level of penalization to balance the trade-off between bias and variance, minimizing the prediction error on new data.
+
+The coefficient matrix indicates the effect size of each predictor variable on the outcome when the model is regularized by the optimal lambda. In this case:
+
+The intercept `r as.numeric(coef.min["(Intercept)", 1])` is a constant term representing the baseline level of the response variable (time to recurrence) when all predictors are at their reference levels are zero. 
+
+A negative coefficient for Mean_Radius `r coef.min["Mean_Radius", 1]` implies that an increase in the mean radius is associated with a decrease in the time to recurrence. This could be interpreted as larger tumors being more aggressive and likely to recur sooner.
+
+A positive coefficient for Mean_Smoothness `r coef.min["Mean_Smoothness", 1]` suggests that smoother tumors are associated with a longer time to recurrence. This might indicate that tumors with a smoother surface are less aggressive.
+
+Similarly, a positive coefficient for Mean_Symmetry `r coef.min["Mean_Symmetry", 1]` implies that more symmetrical tumors may recur later than less symmetrical ones. Again, this might indicate that tumors that are more symmetrical are less aggressive.
+
+The rest of the predictor variables (which showed dots (.) in the R output) indicate that their coefficients have been reduced to zero, effectively removing them from the model and reducing the risk of overfitting. This is a result of the Lasso penalization, which has determined that they do not contribute significantly to the model after accounting for the penalty on complexity.
+
+It is important to note that in the Lasso regression output of coefficients, the reference category for the categorical variable 'Lymph_Node_Status' is not displayed. This is because the model uses one level of the categorical variable as a baseline to which the other levels are compared, and this baseline is integrated into the model's intercept. This practice helps to prevent multicollinearity by avoiding the inclusion of overly correlated variables, known as the 'dummy variable trap'. In our model, the '0' category of 'Lymph_Node_Status' is the reference level. As a result, the coefficients for the levels '1-3' and '4 or more' represent the change in the response variable relative to this reference level.
+
+In summary, the Lasso model has identified Mean_Radius, Mean_Smoothness, and Mean_Symmetry as significant predictors of the time to recurrence and mean that they may play a big role in affecting breast-patient outcomes.
+
+
+***
+
+# Question 2 Classification (7 points)
+
+
+
+```{r task2.1, include = FALSE}
+# Load necessary libraries
+library(caret)
+library(glmnet)
+library(pROC)
+library(tree)
+
+glimpse(data_both)
+# Convert the Outcome variable to a binary variable
+data_both$Outcome <- factor(ifelse(data_both$Outcome == "R", 1, 0), levels = c(0, 1))
+
+# We want to exclude ID, Time from the data as they are not predictors
+data_both1 <- subset(data_both, select = -c(ID, Time))
+
+table(data_both1$Outcome)
+
+#lets see if we should collapse the levels for lymph node status for improved model performance 
+table(data_both1$Lymph_Node_Status)
+# the distribution of lymph node status appears to be well balanced across 3 categories ( no need to collapse into fewer levels)
+
+# we observe large differences between the two classes 
+
+set.seed(123)  # for reproducibility
+
+trainIndex <- createDataPartition(data_both1$Outcome, p = 0.5, list = FALSE, times = 1)
+
+trainData <- data_both1[trainIndex, ]
+testData <- data_both1[-trainIndex, ]
+
+# Check the distribution in training and test sets
+table(trainData$Outcome)
+table(testData$Outcome)
+
+# we have a balanced and equal split between both sets
+
+### LASSO for classification: 
+
+# Prepare matrix of predictors (excluding the outcome variable)
+x_class <- model.matrix(~ . - Outcome, data = data_both1)[,-1]
+
+y_class <- as.numeric(as.character(data_both1$Outcome)) - 1
+
+dim(x_class)
+length(y_class)
+# LASSO model
+lasso.mod2 <- glmnet(x_class, y_class, family = "binomial")
+
+# Plotting LASSO coefficient paths
+plot(lasso.mod2, label = TRUE, xvar = "lambda")
+
+# Cross-validation for lambda selection
+cv.lasso2 <- cv.glmnet(x_class, y_class, alpha = 1, family = "binomial", type.measure = "auc")
+plot(cv.lasso2)
+optimal_lambda2 <- cv.lasso2$lambda.min
+
+# Predicting on the test set
+test_matrix <- model.matrix(~ . - Outcome, data = testData)[,-1]
+pred.lasso <- as.numeric(predict(lasso.mod2, newx = test_matrix, s = optimal_lambda2, type = "response"))
+
+# ROC curve and AUC calculation
+roc_lasso <- roc(response = testData$Outcome, predictor = pred.lasso)
+plot(roc_lasso)
+auc_lasso <- auc(roc_lasso)
+auc_lasso 
+
+
+###################
+ # Build the initial tree model on the training data
+tree.mod <- tree(Outcome ~ ., data = trainData, method = "deviance")
+
+# Perform cross-validation to determine the optimal size for pruning
+cv.res <- cv.tree(tree.mod, FUN = prune.misclass)
+
+# Get the best size that minimizes the cross-validation error
+best.size <- cv.res$size[which.min(cv.res$dev)]
+
+# Prune the tree using the best size
+pruned.tree <- prune.misclass(tree.mod, best = best.size)
+
+class(pruned.tree)
+
+# Plot pruned tree
+plot(pruned.tree)
+text(pruned.tree, pretty = 0)
+
+# Predict probabilities on the test set
+pred.probs <- predict(pruned.tree, newdata = testData, type = "vector")[,2]
+
+# Calculate ROC and AUC
+roc_curve <- roc(response = testData$Outcome, predictor = pred.probs)
+auc_value <- auc(roc_curve)
+auc_value
+# Plot the ROC curve
+plot(roc_curve)
+
+```
+
+
+
+```{r partb2, include = FALSE}
+auc_lasso_results <- numeric(5)
+auc_tree_results <- numeric(5)
+
+selected_features <- data_both1[, c("Mean_Radius", "Mean_Texture", "Mean_Perimeter", "Mean_Area","Mean_Smoothness", "Mean_Compactness", "Mean_Concavity", "Mean_Concave_Points", "Mean_Symmetry", "Mean_Fractal_Dimension", "Tumor_Size", "Lymph_Node_Status")]
+
+for (i in 1:5) {
+  # Randomly split the data into training and test sets
+  set.seed(123 + i)  # Use a different seed for each iteration
+    # Random Split
+    train_indices <- sample(seq_len(nrow(selected_features)), size = round(0.5 * nrow(data_both1)))
+    train_features <- selected_features[train_indices, ]
+    train_target <- data_both1$Outcome[train_indices]
+    test_features <- selected_features[-train_indices, ]
+    test_target <- data_both1$Outcome[-train_indices]
+
+    # Lasso Model
+    x_train <- model.matrix(~ ., data = train_features)
+    x_test <- model.matrix(~ ., data = test_features)
+    lasso_model <- glmnet(x_train, as.numeric(train_target) - 1, family = "binomial")
+    cv_lasso <- cv.glmnet(x_train, as.numeric(train_target) - 1, alpha = 1, family = "binomial", type.measure = "auc", nfolds = min(10, nrow(train_features)))
+    optimal_lambda <- cv_lasso$lambda.min
+    pred_lasso <- predict(cv_lasso, newx = x_test, s = optimal_lambda, type = "response")
+    roc_lasso <- roc(response = as.numeric(test_target) - 1, predictor = as.numeric(pred_lasso))
+    auc_lasso_results[i] <- auc(roc_lasso)
+
+    # Classification Tree
+    tree_model <- tree(Outcome ~ ., data = data.frame(train_features, Outcome = train_target))
+    cv_tree <- cv.tree(tree_model, FUN = prune.tree, method = "deviance")
+    pruned_tree <- prune.tree(tree_model, best = ifelse(min(cv_tree$size) == 1, 2, which.min(cv_tree$dev)))
+
+    if(nrow(pruned_tree$frame) > 1){
+        pred_probs <- predict(pruned_tree, newdata = data.frame(test_features), type = "vector")[,2]
+        roc_tree <- roc(response = as.numeric(test_target) - 1, predictor = as.numeric(pred_probs))
+        auc_tree_results[i] <- auc(roc_tree)
+    } else {
+        auc_tree_results[i] <- NA  # Assign NA if the tree is a single node
+    }
+}
+
+# Output results
+print("AUC results for Lasso across 5 splits:")
+print(auc_lasso_results)
+print("AUC results for Classification Tree across 5 splits:")
+print(auc_tree_results)
+
+```
+
+
+
+
+Table 2: Area Under the Curve (AUC) Results for from Lasso and Tree Classification Models
+
+| Iteration | AUC Lasso | AUC Tree  |
+|-----------|-----------|-----------|
+|     1     | 0.7261905 | 0.4739975 |
+|     2     | 0.6405844 | 0.5662338 |
+|     3     | 0.5850000 | 0.5002778 |
+|     4     | 0.6375758 | 0.5045455 |
+|     5     | 0.6497890 | 0.5411392 |
+
+
+
+
+
+```{r 2.2.1,include= FALSE}
+
+# i want to see the full tree vs pruned one 
+
+# Pruned Classification Tree
+tree_model <- tree(Outcome ~ ., data = data.frame(train_features, Outcome = train_target))
+cv_tree <- cv.tree(tree_model, FUN = prune.tree)
+pruned_tree <- prune.tree(tree_model, best = ifelse(min(cv_tree$size) == 1, 2, which.min(cv_tree$dev)))
+
+plot(tree_model)
+text(tree_model)
+
+```
+
+```{r plot2.2.1, echo=FALSE, fig.cap=" Visualization of full pruned classification tree. Nodes represent the conditions that split the data, and leaves represent the outcome classifications. The tree is pruned to avoid overfitting and to improve the model's generalization to unseen data."}
+# Pruned Classification Tree
+tree_model <- tree(Outcome ~ ., data = data.frame(train_features, Outcome = train_target))
+cv_tree <- cv.tree(tree_model, FUN = prune.tree)
+pruned_tree <- prune.tree(tree_model, best = ifelse(min(cv_tree$size) == 1, 2, which.min(cv_tree$dev)))
+
+# Plot the pruned classification tree
+plot(pruned_tree)
+text(pruned_tree)
+
+```
+
+### Interpret 2.1 and 2.2 
+The study set out to develop predictive models for a binary outcome indicating patient recurrence, using a dataset with 194 records and 13 predictors after the exclusion of non-predictive attributes such as ID and Time. The predictors encompassed various tumor characteristics and lymph node statuses, with the outcome recoded to binary format, where '1' signified recurrence and '0' indicated no recurrence. An initial examination of the class distribution of "Outcome" showed 148 cases without recurrence and 46 cases with recurrence.
+
+Dataset and Preliminary Analysis:
+The distribution of lymph node status was found to be balanced, with no need for collapsing levels. A 50/50 split of the dataset was implemented, ensuring equal and balanced distribution in both training and test sets.
+
+LASSO for Classification::
+The LASSO model was employed for classification first. The optimal lambda value, determined via cross-validation, was 0.00033. This value was pivotal in generating predictions on the test set. Model performance was asssessed using Area under the curve (AUC) The higher AUC values for the lasso indicates a better performance compared to the tree and suggests that the lasso model can better differentiate between patients with recurrence and those without.
+
+Classification Tree (CART):
+The classification tree model was pruned to avoid overfitting, with the optimal size determined through cross-validation to be 10 terminal nodes. The performance of the pruned tree on the test set yielded lower AUC values as shown in table 2, indicating that the model's ability to distinguish between the two outcomes is less effective than the lasso classification model.
+
+Pruned Tree (Figure 7):
+The pruned  tree consists of two primary predictors, "Tumor_Size" and "Mean_Perimeter," which play a significant role in classifying patients into recurrence and non-recurrence categories. By considering the splits in the tree, healthcare providers can make informed decisions on treatments. For example, patients with smaller tumor sizes (less than 1.1) may be at a lower risk of recurrence, while additional considerations, such as "Mean_Perimeter," are taken into account for patients with larger tumor sizes.
+
+Model Comparison and Conclusion:
+
+The performance of the LASSO and CART models was compared using the validation set method. We performed five different iterations, each with a different random split of the data. Lasso classifcation emerged as the superior model, with a higher AUC compared to the classification tree model. This suggests that the lasso model has a better predictive performance and could be considered a more reliable tool for clinical decision-making in this context. The consistent superiority of the lasso regression model across the splits would further validate its robustness as the preferred method for this predictive task.
+
+
+# Question 3 Survival Analysis (6 points)
+
+
+## 3.1
+Censoring occurs when the information about an event of interest is incomplete. In the context of time-to-event data, such as time to recurrence of a disease, censoring is present when the event (recurrence) has not occurred for some subjects during the study period. There are several reasons for censoring. The most common type, which is right censoring, happens when the study ends before the event occurs, or the subject leaves the study early. Left censoring occurs when a subject has already experienced the event before the study begins. Finally, interval censoring is when the event occurs in a time interval between two observation points.
+**For our data, the censored observations are those where the patient did not have a recurrence during the study period. The variable "Outcome" indicates whether recurrence has occurred (R) or not (N). When Outcome is N (or 0), it represents a censored observation because the event (recurrence) has not been observed.**
+
+
+```{r task3.2, include=FALSE}
+# Load the survival library
+library(survival)
+
+#######3.2a
+
+glimpse(data_both)
+
+# Fit a Kaplan-Meier survival curve
+km_fit1 <- survfit(Surv(Time, Outcome == 1) ~ 1, data = data_both)  
+
+# Get the median survival time and summary of the Kaplan-Meier fit
+km_summary <- summary(km_fit1)
+
+median_t <- median(data_both$Time[data_both$Outcome == 1])
+median_t
+
+
+########3.2b) Kaplan-Meier Curves Stratified by Lymph Node Status
+km_fit2 <- survfit(Surv(Time, Outcome == 1) ~ Lymph_Node_Status, data_both)
+
+# Plot KM curves
+plot(km_fit2, col = 1:3, xlab = "Time", ylab = "Survival Probability")
+legend("bottomleft", levels(data_both$Lymph_Node_Status), col = 1:3, lty = 1)
+
+#########3.2c) Log-Rank Test for comparing survival functions
+logrank_test <- survdiff(Surv(Time, Outcome == 1) ~ Lymph_Node_Status, data = data_both)
+logrank_test
+
+# Cox Proportional Hazards Model
+# Build the model
+cox_model <- coxph(Surv(Time, Outcome == 1) ~ ., data = data_both)
+summary(cox_model)
+
+```
+
+
+
+## 3.2 
+
+### a)
+
+The Kaplan-Meier survival analysis provides insights into the distribution of time to recurrence among breast cancer patients post-surgery. The median time to recurrence was calculated at 16.5 months. This value represents the point at which half of the patients experienced a recurrence, indicating a substantial risk within the first year and a half post-treatment.
+
+```{r, echo= FALSE, fig.cap= " Kaplan-Meier Survival Curves for Different Lymph Node Status Categories .This figure displays Kaplan-Meier survival curves for different lymph node status categories (0, 1-3, 4 or more) in the context of breast cancer recurrence. The x-axis represents time, and the y-axis represents the estimated survival probability." }
+# Plot KM curves
+plot(km_fit2, col = 1:3, xlab = "Time", ylab = "Survival Probability")
+legend("bottomleft", levels(data_both$Lymph_Node_Status), col = 1:3, lty = 1)
+
+```
+
+### b)
+Kaplan-Meier survival curves were generated to observe the differences in survival probabilities across different categories of axillary node status: '0', '1-3', and '4 or more', whcih reflect the extent of cancer spread to axillary lymph nodes.
+
+Based on the Kaplan-Meier survival curve graph, the curves revealed distinct patterns for each category. Patients with '0' lymph node status showed the highest survival probability, suggesting a lower risk of recurrence. In contrast, those with '4 or more' lymph nodes affected exhibited a significantly lower survival probability, underlining a higher risk of recurrence. The '1-3' category showed intermediate survival probabilities.
+
+### c)
+A Log-Rank test was performed to statistically compare the survival functions across the three levels of axillary node status. The test yielded a chi-square value of 18.3 on 2 degrees of freedom with a p-value of approximately 1×10^-4, indicating a significant difference in survival distributions among the groups. This result emphasizes that axillary node status is a strong predictor of recurrence, with more affected nodes correlating with higher recurrence rates.
+
+Table 3: Log-Rank Test Output
+
+| Lymph Node Status     | N  | Observed | Expected | (O-E)^2/E | (O-E)^2/V |
+|-----------------------|----|----------|----------|-----------|-----------|
+|                 0     | 87 | 12       | 21.4     | 4.125     | 7.762     |
+                  1-3   | 56 | 12       | 14.4     | 0.391     | 0.574     |
+|                 4+    | 51 | 22       | 10.2     | 13.523    | 17.682    |
+
+## 3.3
+
+
+
+The Cox Proportional Hazards Model was utilized to identify predictors associated with the hazard of breast cancer recurrence, using the same variables as in the previous analyses. The findings are shown below:
+
+Mean Radius and Mean Perimeter: A significant negative coefficient for Mean Radius and a positive one for Mean Perimeter suggest contrasting effects on recurrence risk. These features may reflect tumor characteristics influencing recurrence patterns.
+Mean Smoothness and Mean Fractal Dimension: Both showed significant coefficients, indicating their importance in predicting recurrence risk, potentially due to their association with tumor texture and complexity.
+Lymph Node Status: Patients with '4 or more' lymph nodes affected had a hazard ratio of 4.343, significantly higher than those with fewer affected nodes. This reaffirms the critical role of lymph node involvement in recurrence risk.
+
+The Cox model showed a concordance index of 0.736, indicating a good predictive ability. The likelihood ratio, Wald, and Score tests all yielded significant p-values, confirming the model's robustness.
+
+
+
